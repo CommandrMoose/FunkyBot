@@ -2,6 +2,11 @@ const { joinVoiceChannel, VoiceConnection, createAudioPlayer, createAudioResourc
 const ytdl = require("ytdl-core");
 const playdl = require("play-dl");
 const ytsr = require('ytsr');
+const ytpl = require('ytpl');
+const as = import("array-shuffle");
+const spotifyUrl = require("spotify-url-info");
+
+
 
 // The global queue for the entire bot. This will be mapped with { guild.id, queue_constructor{} }
 const queue = new Map();
@@ -46,6 +51,34 @@ module.exports = {
 
     },
 
+    musicShuffle: function shuffleMusic(message) {
+        if (!isValidCommandSend(message)) return
+
+        var currentSong = queue.get(message.guild.id).songs[0];
+
+        var raw_queue = [...queue.get(message.guild.id).songs];
+
+        // Removes the now playing song.
+        raw_queue.shift();
+
+        if (!raw_queue) {
+            return message.react("❌");
+        }
+
+        shuffle(raw_queue);
+
+
+        var returnedQueue = [currentSong];
+
+        console.log(raw_queue)
+
+        returnedQueue.push(...raw_queue);
+
+        queue.get(message.guild.id).songs = returnedQueue;
+        sendTimedMessage(message.channel, "Shuffled the queue!");
+
+    },
+
     musicQueue: function showQueue(message, showFullQueue) {
 
         if (!isValidCommandSend(message)) return
@@ -77,84 +110,126 @@ module.exports = {
     musicPlay: async function musicPlay(message, args, cmd, client) {
 
         if (!isValidCommandSend(message)) return
-        const voice_channel = message.member.voice.channel;
-
-        //This is our server queue. We are getting this server queue from the global queue.
-        const server_queue = queue.get(message.guild.id);
 
         // Check if there's any args
         if (!args.length) return sendTimedMessage(message.channel, "You must provide a song title or link!");
         console.log(args)
 
-        let song = {};
 
-        var isValidURL = ytdl.validateURL(args[0]);
+        // Check if this is a playlist.
+        if (ytpl.validateID(args[0])) {
+            console.log("Found a playlist.")
+            message.channel.send(`❗❗❗  Warning: Playing large playlists will take a while to load for the bot. Please be patient! ❗❗❗ `)
 
-        // If the first argument provided is a link.
-        if (isValidURL) {
+            var playlist = await ytpl(args[0], { pages: 50 });
+            console.log(playlist.items)
 
-            const song_info = await playdl.video_basic_info(args[0]);
-            song = { title: song_info.video_details.title, url: args[0], length: song_info.video_details.durationRaw, requestedUser: message.member.displayName }
+            for (let i = 0; i < playlist.items.length; i++) {
+                var song = playlist.items[i];
+                var fakeargs = [song.url];
+                await usualSongs(message, true, fakeargs, false);
+            }
+
+
+            sendTimedMessage(message.channel, `Finished queuing ${playlist.items.length} songs.`)
 
         } else {
+            console.log("Could not find a playlist.")
 
-            let yt_info = await playdl.search(args.join(' '), { limit: 1 })
-
-            let song_info = yt_info[0];
-            console.log(song_info)
-
-            if (song_info) {
-                song = { title: song_info.title, url: song_info.url, length: song_info.durationRaw, requestedUser: message.member.displayName };
-            } else {
-                sendTimedMessage(message.channel, "Error finding video.")
-            }
+            var isValidURL = ytdl.validateURL(args[0]);
+            await usualSongs(message, isValidURL, args, true);
         }
-
-        if (!server_queue) {
-
-            const queue_constructor = {
-                voice_channel: voice_channel,
-                text_channel: message.channel,
-                audio_player: null,
-                connection: null,
-                songs: [],
-                relatedMessages: []
-            }
-
-            //Add our key and value pair into the global queue. We then use this to get our server queue.
-            queue.set(message.guild.id, queue_constructor);
-            queue_constructor.songs.push(song);
-
-            //Establish a connection and play the song with the video_player function.
-            try {
-
-                const connection = joinVoiceChannel({
-                    channelId: message.member.voice.channel.id,
-                    guildId: message.guild.id,
-                    adapterCreator: message.guild.voiceAdapterCreator
-                });
+    }
+}
 
 
-                let player = createAudioPlayer();
-                connection.subscribe(player);
-                queue_constructor.audio_player = player;
-                queue_constructor.connection = connection;
+/**
+ * Shuffles array in place.
+ * @param {Array} a items An array containing the items.
+ */
+function shuffle(arr) {
+    var j, x, index;
+    for (index = arr.length - 1; index > 0; index--) {
+        j = Math.floor(Math.random() * (index + 1));
+        x = arr[index];
+        arr[index] = arr[j];
+        arr[j] = x;
+    }
+    return arr;
+}
 
-                video_player(message.guild, queue_constructor.songs[0]);
 
-            } catch (err) {
-                queue.delete(message.guild.id);
-                sendTimedMessage(message.channel, 'There was an error connecting!');
-                throw err;
-            }
+async function usualSongs(message, isValidURL, args, printAdded) {
+    // If the first argument provided is a link.
+
+    const voice_channel = message.member.voice.channel;
+
+    //This is our server queue. We are getting this server queue from the global queue.
+    const server_queue = queue.get(message.guild.id);
+    let song = {};
+
+    if (isValidURL) {
+
+        const song_info = await playdl.video_basic_info(args[0]);
+        song = { title: song_info.video_details.title, url: args[0], length: song_info.video_details.durationRaw, requestedUser: message.member.displayName }
+
+    } else {
+
+        let yt_info = await playdl.search(args.join(' '), { limit: 1 })
+
+        let song_info = yt_info[0];
+        console.log(song_info)
+
+        if (song_info) {
+            song = { title: song_info.title, url: song_info.url, length: song_info.durationRaw, requestedUser: message.member.displayName };
         } else {
-            server_queue.songs.push(song);
-            sendTimedMessage(message.channel, `👍 **${song.title}** added to queue!`);
-
-            return
+            sendTimedMessage(message.channel, "Error finding video.")
         }
     }
 
+    if (!server_queue) {
+
+        const queue_constructor = {
+            voice_channel: voice_channel,
+            text_channel: message.channel,
+            audio_player: null,
+            connection: null,
+            songs: [],
+            relatedMessages: []
+        }
+
+        //Add our key and value pair into the global queue. We then use this to get our server queue.
+        queue.set(message.guild.id, queue_constructor);
+        queue_constructor.songs.push(song);
+
+        //Establish a connection and play the song with the video_player function.
+        try {
+
+            const connection = joinVoiceChannel({
+                channelId: message.member.voice.channel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator
+            });
+
+
+            let player = createAudioPlayer();
+            connection.subscribe(player);
+            queue_constructor.audio_player = player;
+            queue_constructor.connection = connection;
+
+            video_player(message.guild, queue_constructor.songs[0]);
+
+        } catch (err) {
+            queue.delete(message.guild.id);
+            sendTimedMessage(message.channel, 'There was an error connecting!');
+            throw err;
+        }
+    } else {
+        server_queue.songs.push(song);
+
+        if (printAdded) { sendTimedMessage(message.channel, `👍 **${song.title}** added to queue!`); }
+        return
+    }
 }
 
 
@@ -197,7 +272,7 @@ function isValidCommandSend(message) {
     }
     const permissions = voice_channel.permissionsFor(message.client.user);
     if (!permissions.has('CONNECT') || !permissions.has('SPEAK')) {
-        message.channel.send('You dont have the correct permissins');
+        message.channel.send('You dont have the correct permissions');
         return false
     }
 
