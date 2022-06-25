@@ -19,11 +19,9 @@ module.exports = {
         if (song_queue) {
             song_queue.connection.destroy();
             queue.delete(guild.id);
-
         }
 
-        console.log("Killed.")
-
+        console.log(`Disconnected from ${guild.displayName}`);
     },
 
     musicClear: function clearMusic(message) {
@@ -89,6 +87,7 @@ module.exports = {
         }
 
 
+        // Build the display message with a code block.
         let returnMsg = "```js\n";
 
         returnMsg += "Now playing: \n" + server_queue.songs[0].title + " > requested by " + server_queue.songs[0].requestedUser + ` ⌚ ${server_queue.songs[0].length}` + " ```\n";
@@ -107,7 +106,7 @@ module.exports = {
         sendTimedMessage(message.channel, returnMsg);
     },
 
-    musicPlay: async function musicPlay(message, args, cmd, client) {
+    musicPlay: async function musicPlay(message, args) {
 
         if (!isValidCommandSend(message)) return
 
@@ -168,13 +167,14 @@ async function usualSongs(message, isValidURL, args, printAdded) {
     const server_queue = queue.get(message.guild.id);
     let song = {};
 
+    // Load the URL straight into the API.
     if (isValidURL) {
-
         const song_info = await playdl.video_basic_info(args[0]);
         song = { title: song_info.video_details.title, url: args[0], length: song_info.video_details.durationRaw, requestedUser: message.member.displayName }
 
     } else {
 
+        // Search Youtube for the valid clip.
         let yt_info = await playdl.search(args.join(' '), { limit: 1 })
 
         let song_info = yt_info[0];
@@ -284,8 +284,6 @@ function clearMessages(guild) {
 }
 
 function sendTimedMessage(channel, response) {
-
-    //
 
     channel.send(response).then(msg => {
         setTimeout(() => msg.delete(), 10000)
