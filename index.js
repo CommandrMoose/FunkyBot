@@ -7,7 +7,7 @@ const dotenv = require('dotenv').config();
 
 
 //const token = process.env.TOKEN;
-const token = "ODgwMjA4MzU1MjU4NDAwODA5.Gk7rjC.EPGz0qOXoT2U4u6Lmh7LdcKfDkwHjMBMTcaxyE";
+const token = process.env.TOKEN;
 console.log(token);
 const clientID = '880208355258400809'
 
